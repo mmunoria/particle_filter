@@ -4,7 +4,7 @@ from sensor_msgs.msg import JointState, Imu
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry, Path
 import numpy as np
-from math import cos, sin, atan2,pi
+from math import cos, sin, atan2,pi, sqrt, exp
 import random
 
 class ParticleFilter(Node):
@@ -37,6 +37,8 @@ class ParticleFilter(Node):
 
         self.last_wheel_pos = None
         self.last_wheel_t = None
+        self.particle = np.empty()
+        self.weights = np.empty()
 
 
         self.pf_path = Path()
@@ -152,10 +154,51 @@ class ParticleFilter(Node):
         weights = np.ones(self.M) / self.M
 
         return particles, weights
+    
+    def resample(particles, weights):
+        M = len(particles)
+        weights = weights / np.sum(weights)
+
+        indices = np.random.choice(
+            range(M),
+            size=M,
+            p=weights
+        )
+
+        new_particles = particles[indices]
+
+        return new_particles
+    
+    def p_z(self, x_t, z):
+
+        a = 1 / ( sqrt( (2*pi)**3 * self.R ) )
+        expo = exp( -0.5 * (z - self.h(x_t)).T * np.linalg.inv(self.R) * (z - self.h(x_t)) )
+
+        return a * expo
 
     
-    def particle_filter_step(self):
+    def particle_filter_step(self, dt):
+        
+        particles = np.empty()
+        weights =  np.empty()
          
+        if self.runtime == 0:
+            x_t = self.f_x(self.x, self.u,dt)
+            particles, weights = self.generate_particles(x_t)
+
+        else:
+            for i in range(self.particles.size):
+                np.append(particles  ,self.f_x(self.particles[i], self.u,dt) )
+                np.append(weights, self.p_z(x_t, self.z))
+                
+            self.runtime += 1
+        
+        self.particles = self.resample(particles ,weights)
+
+        return particles
+
+    def particle_filter(self):
+
         t_now = self.get_clock().now()
         t = t_now.nanoseconds * 1e-9
         if self.last_time is None:
@@ -163,17 +206,15 @@ class ParticleFilter(Node):
             return
         dt = t - self.last_time
         self.last_time = t
-         
-        if self.runtime == 0:
-            x_t = self.f_x(self.x, self.u,dt)
-            particles, weights = self.generate_particles(x_t)
 
-         
-        else:
-            for i in range(self.M):
-                pass
-            
-            self.runtime += 1
+        self.particle_filter_step(dt)
+
+        
+
+
+
+
+
     
 
 
