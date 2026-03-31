@@ -7,6 +7,19 @@ import numpy as np
 from math import cos, sin, atan2,pi, sqrt, exp
 import random
 
+
+def wrap_angle(a: float) -> float:
+    # Because angles larger than pi or smaller than -pi are just showing off. 
+    # Keep it in the [-pi, pi].
+    return (a + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def to_quaternion(agnle: float):
+    # Since we are essentially in 2D (yaw only), x and y are strictly zero.
+    qz = np.sin(agnle * 0.5)
+    qw = np.cos(agnle * 0.5)
+    return (0.0, 0.0, qz, qw)
+
 class ParticleFilter(Node):
 
     def __init__(self):
@@ -209,7 +222,43 @@ class ParticleFilter(Node):
 
         self.particle_filter_step(dt)
 
+        px = float(self.x[0, 0])
+        py = float(self.x[1, 0])
+        theta = float(self.x[2, 0])
+        v_f = float(self.x[3, 0])
+        w_f = float(self.x[4, 0])
+
+        qx, qy, qz, qw = to_quaternion(theta)
+
+        current_time_msg = t_now.to_msg()
+
+        # Map internal 5x5 covariance matrix to standard ROS 6x6 PoseWithCovariance structure
+        cov6 = np.zeros((6, 6), dtype=float)
+        cov6[0, 0] = self.P[0, 0]   
+        cov6[0, 1] = self.P[0, 1] 
+        cov6[1, 0] = self.P[1, 0]   
+        cov6[1, 1] = self.P[1, 1]   
+        cov6[5, 5] = self.P[2, 2] # Map 2D orientation covariance to 3D Z-axis rotation
+
+        odom = Odometry()
+        odom.header.stamp = current_time_msg
+        odom.header.frame_id = "odom"
+        odom.child_frame_id = "base_link"
+
+        odom.pose.pose.position.x = px
+        odom.pose.pose.position.y = py
+        odom.pose.pose.position.z = 0.0
         
+        odom.pose.pose.orientation.x = qx
+        odom.pose.pose.orientation.y = qy
+        odom.pose.pose.orientation.z = qz
+        odom.pose.pose.orientation.w = qw
+
+        odom.pose.covariance = cov6.reshape(-1).tolist()
+
+        odom.twist.twist.linear.x = v_f
+        odom.twist.twist.angular.z = w_f
+        self.odom_pub.publish(odom)
 
 
 
